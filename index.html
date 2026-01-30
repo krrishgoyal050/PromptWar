@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Space Dodger</title>
+    <meta name="description" content="A fast-paced space survival game. Dodge asteroids and collect energy orbs to score high!">
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Exo+2:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <div id="game-container">
+        <!-- UI Header -->
+        <header id="game-ui">
+            <div id="score-board">
+                <span id="score-label" aria-live="polite">Score: <span id="current-score">0</span></span>
+                <span id="high-score-label">High Score: <span id="high-score">0</span></span>
+            </div>
+            <div id="auth-ui">
+                <button id="login-btn" class="ui-btn">Sign In with Google</button>
+                <button id="logout-btn" class="ui-btn hidden">Sign Out</button>
+                <span id="user-display" class="hidden"></span>
+            </div>
+        </header>
+
+        <!-- Game Canvas -->
+        <canvas id="game-canvas" width="800" height="600" aria-label="Game Screen. Use Arrow Keys to move. Avoid Red Asteroids. Collect Blue Orbs."></canvas>
+
+        <!-- Overlays -->
+        <div id="start-screen" class="overlay">
+            <h1>SPACE DODGER</h1>
+            <p>Use Arrow Keys to Move</p>
+            <p>Avoid Red Asteroids | Collect Blue Orbs</p>
+            <button id="start-btn" class="ui-btn large">Start Mission</button>
+        </div>
+
+        <div id="game-over-screen" class="overlay hidden">
+            <h2>MISSION FAILED</h2>
+            <p>Final Score: <span id="final-score">0</span></p>
+            <button id="restart-btn" class="ui-btn large">Try Again</button>
+            <button id="save-score-btn" class="ui-btn">Save to Leaderboard</button>
+            <button id="export-btn" class="ui-btn">Export Session</button>
+        </div>
+        
+        <div id="loading-overlay" class="overlay hidden">
+            <div class="spinner"></div>
+            <p>Connecting to Network...</p>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <!-- Firebase SDKs (Using CDN for simplicity in this demo, in production use modules) -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    
+    <!-- Game Scripts -->
+    <script src="services.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>
