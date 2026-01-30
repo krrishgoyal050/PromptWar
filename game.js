@@ -1,6 +1,7 @@
 /**
  * Space Dodger - Core Game Logic
  * Implements game loop, entities, local storage scoring, and state management.
+ * Optimized with Object Pooling for efficiency.
  */
 
 // --- CONFIGURATION ---
@@ -20,6 +21,59 @@ const gameState = {
     highScore: parseInt(localStorage.getItem('spaceDodger_highScore')) || 0,
     startTime: 0
 };
+
+// --- OBJECT POOLING ---
+class Pool {
+    constructor(createFn, maxSize = 50) {
+        this.createFn = createFn;
+        this.pool = [];
+        this.active = [];
+        this.maxSize = maxSize;
+    }
+
+    get() {
+        let item;
+        if (this.pool.length > 0) {
+            item = this.pool.pop();
+            item.reset(); // Make sure entities have a reset method
+        } else {
+            item = this.createFn();
+        }
+        this.active.push(item);
+        return item;
+    }
+
+    release(item) {
+        const index = this.active.indexOf(item);
+        if (index > -1) {
+            this.active.splice(index, 1);
+            if (this.pool.length < this.maxSize) {
+                this.pool.push(item);
+            }
+        }
+    }
+
+    updateAll() {
+        for (let i = this.active.length - 1; i >= 0; i--) {
+            const item = this.active[i];
+            item.update();
+            if (item.markedForDeletion) {
+                this.release(item);
+            }
+        }
+    }
+
+    drawAll(ctx) {
+        for (const item of this.active) {
+            item.draw(ctx);
+        }
+    }
+
+    reset() {
+        this.pool = this.pool.concat(this.active);
+        this.active = [];
+    }
+}
 
 // --- ENTITIES ---
 class Player {
@@ -65,7 +119,7 @@ class Player {
         ctx.lineTo(this.x, this.y + this.height);
         ctx.closePath();
         ctx.fill();
-        
+
         // Thruster glow
         ctx.shadowBlur = 10;
         ctx.shadowColor = this.color;
@@ -76,10 +130,14 @@ class Player {
 
 class Obstacle {
     constructor() {
+        this.reset();
+    }
+
+    reset() {
         this.size = Math.random() * 30 + 20;
         this.x = Math.random() * (CANVAS_WIDTH - this.size);
         this.y = -this.size;
-        this.speed = Math.random() * 3 + 2 + (gameState.score / 500); // Speed scales with score
+        this.speed = Math.random() * 3 + 2 + (gameState.score / 500);
         this.color = '#ff0055';
         this.markedForDeletion = false;
     }
@@ -97,6 +155,10 @@ class Obstacle {
 
 class Orb {
     constructor() {
+        this.reset();
+    }
+
+    reset() {
         this.size = 15;
         this.x = Math.random() * (CANVAS_WIDTH - this.size);
         this.y = -this.size;
@@ -113,9 +175,9 @@ class Orb {
     draw(ctx) {
         ctx.fillStyle = this.color;
         ctx.beginPath();
-        ctx.arc(this.x + this.size/2, this.y + this.size/2, this.size/2, 0, Math.PI * 2);
+        ctx.arc(this.x + this.size / 2, this.y + this.size / 2, this.size / 2, 0, Math.PI * 2);
         ctx.fill();
-        
+
         ctx.shadowBlur = 10;
         ctx.shadowColor = this.color;
         ctx.fill();
@@ -127,8 +189,11 @@ class Orb {
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
 let player = new Player();
-let obstacles = [];
-let orbs = [];
+
+// Pools
+const obstaclePool = new Pool(() => new Obstacle());
+const orbPool = new Pool(() => new Orb());
+
 let animationId;
 
 // Input Handling
@@ -137,6 +202,7 @@ const inputHandler = {
     init() {
         window.addEventListener('keydown', e => {
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
+                e.preventDefault(); // Prevent scrolling
                 this.keys[e.code] = true;
             }
             if (e.code === 'Enter' && gameState.gameOver) {
@@ -144,7 +210,7 @@ const inputHandler = {
             }
         });
         window.addEventListener('keyup', e => {
-             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
                 this.keys[e.code] = false;
             }
         });
@@ -155,7 +221,7 @@ const inputHandler = {
 function init() {
     inputHandler.init();
     updateUI();
-    
+
     document.getElementById('start-btn').addEventListener('click', startGame);
     document.getElementById('restart-btn').addEventListener('click', resetGame);
     document.getElementById('save-score-btn').addEventListener('click', handleExternalSave);
@@ -169,8 +235,10 @@ function startGame() {
     gameState.score = 0;
     gameState.startTime = Date.now();
     player = new Player();
-    obstacles = [];
-    orbs = [];
+
+    obstaclePool.reset();
+    orbPool.reset();
+
     animate();
 }
 
@@ -180,7 +248,7 @@ function resetGame() {
 
 function checkCollisions() {
     // Player vs Obstacles
-    for (let obs of obstacles) {
+    for (let obs of obstaclePool.active) {
         if (
             player.x < obs.x + obs.size &&
             player.x + player.width > obs.x &&
@@ -192,40 +260,37 @@ function checkCollisions() {
     }
 
     // Player vs Orbs
-    for (let i = 0; i < orbs.length; i++) {
-        let orb = orbs[i];
-         if (
+    for (let orb of orbPool.active) {
+        if (
             player.x < orb.x + orb.size &&
             player.x + player.width > orb.x &&
             player.y < orb.y + orb.size &&
             player.y + player.height > orb.y
         ) {
             gameState.score += 100;
-            orbs.splice(i, 1);
-            i--;
+            orb.markedForDeletion = true; // Mark for immediate cleanup by pool
         }
     }
 }
 
+/**
+ * Main Game Update Loop
+ */
 function updateGame() {
     player.update(inputHandler);
 
     // Spawning
     gameState.frames++;
     if (gameState.frames % SPAWN_RATE_ASTEROID === 0) {
-        obstacles.push(new Obstacle());
+        obstaclePool.get();
     }
     if (gameState.frames % SPAWN_RATE_ORB === 0) {
-        orbs.push(new Orb());
+        orbPool.get();
     }
 
     // Updating Entities
-    obstacles.forEach(o => o.update());
-    orbs.forEach(o => o.update());
-
-    // Cleanup
-    obstacles = obstacles.filter(o => !o.markedForDeletion);
-    orbs = orbs.filter(o => !o.markedForDeletion);
+    obstaclePool.updateAll();
+    orbPool.updateAll();
 
     // Survival Score
     if (gameState.frames % 60 === 0) {
@@ -244,8 +309,8 @@ function drawGame() {
     player.draw(ctx);
 
     // Draw Entities
-    obstacles.forEach(o => o.draw(ctx));
-    orbs.forEach(o => o.draw(ctx));
+    obstaclePool.drawAll(ctx);
+    orbPool.drawAll(ctx);
 }
 
 function animate() {
@@ -272,17 +337,24 @@ function handleGameOver() {
     document.getElementById('game-over-screen').classList.remove('hidden');
     document.getElementById('final-score').innerText = gameState.score;
     updateUI();
+
+    // Auto-update external services if logged in (optional but good for efficiency)
+    if (window.GameServices && window.GameServices.user) {
+        // Silent background save could go here
+    }
 }
 
 function updateUI() {
-    document.getElementById('current-score').innerText = gameState.score;
-    document.getElementById('high-score').innerText = gameState.highScore;
+    document.getElementById('current-score').textContent = gameState.score;
+    document.getElementById('high-score').textContent = gameState.highScore;
 }
 
 // Integration Hook
 async function handleExternalSave() {
     if (window.GameServices) {
         await window.GameServices.saveScore(gameState.score);
+        // Refresh leaderboard view if we have one
+        window.GameServices.updateLeaderboardUI();
     } else {
         alert("Services not loaded.");
     }
